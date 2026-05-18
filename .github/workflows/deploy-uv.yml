@@ -1,0 +1,69 @@
+name: Deploy UV Dashboard
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'UV/**'
+      - 'index.html'
+      - '.github/workflows/deploy-uv.yml'
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest Vercount snapshot
+        env:
+          TARGET_URL: https://coperlm.github.io/
+          STATS_URL: https://vercount-l2e8.vercel.app/api/v2/stats
+        run: |
+          mkdir -p UV/data
+          if command -v jq >/dev/null 2>&1; then
+            if curl -fsSL "$STATS_URL?url=$TARGET_URL&type=both" -o /tmp/uv-live.json; then
+              jq '{status: "success", message: "cached by GitHub Actions", data: (.data // .)}' /tmp/uv-live.json > UV/data/cache.json
+            else
+              printf '%s\n' '{"status":"error","message":"Unable to fetch live stats during workflow"}' > UV/data/cache.json
+            fi
+          else
+            printf '%s\n' '{"status":"error","message":"jq is not available in the runner"}' > UV/data/cache.json
+          fi
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p dist/UV
+          cp index.html dist/index.html
+          cp -R UV/. dist/UV/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

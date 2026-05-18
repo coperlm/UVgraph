@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="coperlm.github.io 的 Vercount UV/PV 时序仪表盘，展示最近 30 天访客变化折线图。"
+    />
+    <title>coperlm.github.io UV 折线图</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <link rel="stylesheet" href="./assets/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+    <script src="./assets/app.js" defer></script>
+  </head>
+  <body>
+    <div class="bg-orb bg-orb--one"></div>
+    <div class="bg-orb bg-orb--two"></div>
+
+    <main class="shell">
+      <section class="hero card">
+        <div class="hero__copy">
+          <p class="eyebrow">Vercount / GitHub Pages</p>
+          <h1>coperlm.github.io 访客折线图</h1>
+          <p class="hero__lead">
+            直接读取 Vercount 时序接口，展示博客站点的 PV / UV 变化趋势，并在 GitHub Actions 中自动部署到 <span>/UV</span>。
+          </p>
+        </div>
+
+        <div class="hero__controls">
+          <label class="field">
+            <span>目标网址</span>
+            <input id="targetUrl" type="url" value="https://coperlm.github.io/" spellcheck="false" />
+          </label>
+          <button id="refreshButton" class="button button--primary" type="button">刷新图表</button>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="统计摘要">
+        <article class="card metric">
+          <span class="metric__label">最近 30 天 PV</span>
+          <strong id="totalPv" class="metric__value">--</strong>
+          <span id="pvDelta" class="metric__sub">等待加载</span>
+        </article>
+        <article class="card metric">
+          <span class="metric__label">最近 30 天 UV</span>
+          <strong id="totalUv" class="metric__value">--</strong>
+          <span id="uvDelta" class="metric__sub">等待加载</span>
+        </article>
+        <article class="card metric">
+          <span class="metric__label">峰值日期</span>
+          <strong id="peakDay" class="metric__value">--</strong>
+          <span id="peakValue" class="metric__sub">等待加载</span>
+        </article>
+        <article class="card metric">
+          <span class="metric__label">数据来源</span>
+          <strong id="dataSource" class="metric__value">--</strong>
+          <span id="lastUpdated" class="metric__sub">等待加载</span>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="card chart-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">趋势图</p>
+              <h2>最近 30 天 PV / UV</h2>
+            </div>
+            <p class="section-head__hint">支持实时接口和同源缓存兜底</p>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="statsChart" aria-label="最近 30 天访问趋势图" role="img"></canvas>
+          </div>
+        </article>
+
+        <article class="card table-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">明细</p>
+              <h2>最近数据列表</h2>
+            </div>
+            <p class="section-head__hint">默认按日期排序</p>
+          </div>
+
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>PV</th>
+                  <th>UV</th>
+                </tr>
+              </thead>
+              <tbody id="statsTableBody">
+                <tr>
+                  <td colspan="3" class="empty">正在加载数据...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="card note-card">
+        <div>
+          <p class="eyebrow">部署说明</p>
+          <h2>GitHub Actions 会把这个目录发布到 Pages</h2>
+        </div>
+        <p>
+          部署后直接访问 <strong>https://coperlm.github.io/UV/</strong>。根路径会自动跳转到该页面，方便用户和自己快速进入。
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
