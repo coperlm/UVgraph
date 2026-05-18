@@ -1,6 +1,6 @@
 # UVgraph
 
-这是一个为 https://coperlm.github.io/ 做的 UV/PV 折线图仪表盘。
+这是一个为 https://coperlm.github.io/ 做的 UV/PV 静态历史仪表盘。
 
 ## 在线入口
 
@@ -13,23 +13,21 @@
 - `UV/index.html`：仪表盘页面
 - `UV/assets/styles.css`：页面样式
 - `UV/assets/app.js`：拉取 Vercount 数据并渲染图表
-- `UV/data/cache.json`：GitHub Actions 生成的同源缓存
-- `.github/workflows/deploy-uv.yml`：GitHub Pages 部署工作流
+- `UV/data/history.json`：每天追加的静态历史数据
+- `scripts/update-history.mjs`：抓取 Vercount 并更新历史文件
+- `.github/workflows/deploy-uv.yml`：静态发布工作流
 
 ## 数据来源
 
-页面默认读取 Vercount 时序接口：
-
-- `https://vercount-l2e8.vercel.app/api/v2/stats?url=https://coperlm.github.io/&type=both`
-
-如果实时接口不可用，页面会回退到同源缓存 `UV/data/cache.json`。
+页面只读取本地静态历史文件 `UV/data/history.json`。
 
 ## GitHub Actions
 
-工作流会做两件事：
+工作流会做三件事：
 
-1. 拉取最新的 Vercount 时序数据，写入 `UV/data/cache.json`
-2. 将整个站点作为 GitHub Pages artifact 发布
+1. 从 Vercount 和站点 sitemap 拉取当天数据
+2. 追加写入 `UV/data/history.json`
+3. 将静态站点发布到 `gh-pages` 分支
 
 ## 本地修改
 
@@ -40,3 +38,7 @@
 - `index.html`
 - `UV/index.html`
 - `.github/workflows/deploy-uv.yml`
+
+## GitHub Pages
+
+这个仓库现在使用 `gh-pages` 分支承载静态站点。如果你的仓库还没有启用 Pages，请在仓库设置里把 Pages source 指向 `gh-pages` 分支根目录。

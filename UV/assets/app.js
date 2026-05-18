@@ -1,9 +1,8 @@
-const DEFAULT_TARGET = 'https://coperlm.github.io/';
-const STATS_API = 'https://vercount-l2e8.vercel.app/api/v2/stats';
-const CACHE_URL = './data/cache.json';
+const HISTORY_URL = './data/history.json';
 
 const elements = {
-  targetUrl: document.getElementById('targetUrl'),
+  rangeSelect: document.getElementById('rangeSelect'),
+  pageSelect: document.getElementById('pageSelect'),
   refreshButton: document.getElementById('refreshButton'),
   totalPv: document.getElementById('totalPv'),
   totalUv: document.getElementById('totalUv'),
@@ -15,9 +14,16 @@ const elements = {
   lastUpdated: document.getElementById('lastUpdated'),
   statsTableBody: document.getElementById('statsTableBody'),
   chartCanvas: document.getElementById('statsChart'),
+  chartTitle: document.getElementById('chartTitle'),
+  chartSubtitle: document.getElementById('chartSubtitle'),
 };
 
 let chartInstance = null;
+let appState = {
+  history: { siteUrl: '', generatedAt: '', pages: [], snapshots: [] },
+  selectedRange: '30',
+  selectedPage: 'all',
+};
 
 function formatNumber(value) {
   return new Intl.NumberFormat('zh-CN').format(Number(value) || 0);
@@ -30,44 +36,68 @@ function formatDateLabel(value) {
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(parsed);
 }
 
-function normalizeTargetUrl(value) {
-  const url = String(value || '').trim();
-  if (!url) return DEFAULT_TARGET;
-  return url.endsWith('/') ? url : `${url}/`;
+function formatPageLabel(path) {
+  if (path === 'all') return '全站';
+  if (path === '/') return '首页';
+  return path.replace(/\/$/, '').split('/').filter(Boolean).pop() || path;
 }
 
-function buildApiUrl(targetUrl) {
-  const apiUrl = new URL(STATS_API);
-  apiUrl.searchParams.set('url', targetUrl);
-  apiUrl.searchParams.set('type', 'both');
-  return apiUrl.toString();
+function normalizeSnapshot(snapshot) {
+  return {
+    date: snapshot.date,
+    site: {
+      pv: Number(snapshot.site?.pv ?? snapshot.site_pv ?? 0),
+      uv: Number(snapshot.site?.uv ?? snapshot.site_uv ?? 0),
+    },
+    pages: Array.isArray(snapshot.pages)
+      ? snapshot.pages.map((page) => ({
+          path: page.path,
+          pv: Number(page.pv ?? 0),
+          uv: Number(page.uv ?? 0),
+        }))
+      : [],
+  };
 }
 
-function extractSeries(payload) {
-  const data = payload?.data ?? payload;
-  if (!data) {
-    throw new Error('响应中没有可用数据。');
-  }
+function normalizeHistory(history) {
+  const normalizedSnapshots = Array.isArray(history?.snapshots)
+    ? history.snapshots.map(normalizeSnapshot).filter((snapshot) => snapshot.date)
+    : [];
 
-  const dates = Array.isArray(data.dates) ? data.dates : [];
-  const series = data.series || {};
-  const sitePv = Array.isArray(series.site_pv) ? series.site_pv : Array.isArray(data.site_pv) ? data.site_pv : [];
-  const siteUv = Array.isArray(series.site_uv) ? series.site_uv : Array.isArray(data.site_uv) ? data.site_uv : [];
+  const pageMap = new Map();
+  const declaredPages = Array.isArray(history?.pages) ? history.pages : [];
 
-  if (!dates.length || (!sitePv.length && !siteUv.length)) {
-    throw new Error('接口返回格式不包含日期或时序数组。');
-  }
+  declaredPages.forEach((page) => {
+    if (page?.path) {
+      pageMap.set(page.path, {
+        path: page.path,
+        label: page.label || formatPageLabel(page.path),
+      });
+    }
+  });
 
-  const rows = dates.map((date, index) => ({
-    date,
-    pv: Number(sitePv[index] ?? 0),
-    uv: Number(siteUv[index] ?? 0),
-  }));
+  normalizedSnapshots.forEach((snapshot) => {
+    snapshot.pages.forEach((page) => {
+      if (page?.path && !pageMap.has(page.path)) {
+        pageMap.set(page.path, {
+          path: page.path,
+          label: formatPageLabel(page.path),
+        });
+      }
+    });
+  });
+
+  const pages = Array.from(pageMap.values()).sort((left, right) => {
+    if (left.path === '/') return -1;
+    if (right.path === '/') return 1;
+    return left.label.localeCompare(right.label, 'zh-Hans-CN');
+  });
 
   return {
-    rows,
-    sourceLabel: data.source || payload?.source || 'live-api',
-    fetchedAt: payload?.timestamp ? new Date(payload.timestamp).toLocaleString('zh-CN') : new Date().toLocaleString('zh-CN'),
+    siteUrl: history?.siteUrl || '',
+    generatedAt: history?.generatedAt || '',
+    pages,
+    snapshots: normalizedSnapshots.sort((left, right) => left.date.localeCompare(right.date)),
   };
 }
 
@@ -80,35 +110,7 @@ async function fetchJson(url, options = {}) {
   if (!response.ok) {
     throw new Error(`请求失败：HTTP ${response.status}`);
   }
-
   return response.json();
-}
-
-async function loadStats(targetUrl) {
-  const liveUrl = buildApiUrl(targetUrl);
-  try {
-    const livePayload = await fetchJson(liveUrl);
-    const parsed = extractSeries(livePayload);
-    return { ...parsed, dataSource: '实时接口', liveUrl };
-  } catch (liveError) {
-    try {
-      const cachePayload = await fetchJson(CACHE_URL);
-      const parsed = extractSeries(cachePayload);
-      return {
-        ...parsed,
-        dataSource: '同源缓存',
-        liveUrl,
-        cacheError: liveError instanceof Error ? liveError.message : String(liveError),
-      };
-    } catch (cacheError) {
-      throw new Error(
-        [
-          liveError instanceof Error ? liveError.message : String(liveError),
-          cacheError instanceof Error ? cacheError.message : String(cacheError),
-        ].join(' / ')
-      );
-    }
-  }
 }
 
 function renderTable(rows) {
@@ -132,10 +134,37 @@ function renderTable(rows) {
     .join('');
 }
 
-function renderChart(rows) {
+function buildSeries(history, selectedRange, selectedPage) {
+  const snapshots = history.snapshots;
+  const boundedSnapshots = selectedRange === 'all' ? snapshots : snapshots.slice(-Number(selectedRange));
+
+  const rows = boundedSnapshots.map((snapshot) => {
+    const selectedPageStats = selectedPage === 'all'
+      ? snapshot.site
+      : snapshot.pages.find((page) => page.path === selectedPage) || { pv: 0, uv: 0 };
+
+    return {
+      date: snapshot.date,
+      pv: Number(selectedPageStats.pv ?? 0),
+      uv: Number(selectedPageStats.uv ?? 0),
+    };
+  });
+
+  return rows;
+}
+
+function getPageLabel(history, selectedPage) {
+  if (selectedPage === 'all') return '全站';
+  return history.pages.find((page) => page.path === selectedPage)?.label || formatPageLabel(selectedPage);
+}
+
+function renderChart(rows, title, subtitle) {
   const labels = rows.map((row) => formatDateLabel(row.date));
   const pvValues = rows.map((row) => row.pv);
   const uvValues = rows.map((row) => row.uv);
+
+  elements.chartTitle.textContent = title;
+  elements.chartSubtitle.textContent = subtitle;
 
   const context = elements.chartCanvas.getContext('2d');
   const gradientPv = context.createLinearGradient(0, 0, 0, 420);
@@ -217,46 +246,66 @@ function renderChart(rows) {
   });
 }
 
-function updateSummary(rows, dataSource, fetchedAt, liveUrl, cacheError) {
+function updateSummary(rows, history, selectedRange, selectedPage) {
   const totalPv = rows.reduce((sum, row) => sum + row.pv, 0);
   const totalUv = rows.reduce((sum, row) => sum + row.uv, 0);
   const latest = rows[rows.length - 1] || { date: '--', pv: 0, uv: 0 };
   const peak = rows.reduce((best, current) => (current.pv > best.pv ? current : best), rows[0] || { date: '--', pv: 0, uv: 0 });
   const averageUv = rows.length ? Math.round(totalUv / rows.length) : 0;
+  const rangeLabel = selectedRange === 'all' ? '全部历史' : `最近 ${selectedRange} 天`;
+  const pageLabel = getPageLabel(history, selectedPage);
 
   elements.totalPv.textContent = formatNumber(totalPv);
   elements.totalUv.textContent = formatNumber(totalUv);
-  elements.pvDelta.textContent = `最新 ${latest.date}：PV ${formatNumber(latest.pv)}`;
-  elements.uvDelta.textContent = `日均 UV ${formatNumber(averageUv)}，最新 UV ${formatNumber(latest.uv)}`;
+  elements.pvDelta.textContent = `${pageLabel} · ${rangeLabel}`;
+  elements.uvDelta.textContent = `日均 UV ${formatNumber(averageUv)}，最新 ${latest.date}`;
   elements.peakDay.textContent = peak.date || '--';
   elements.peakValue.textContent = `峰值 PV ${formatNumber(peak.pv)}`;
-  elements.dataSource.textContent = dataSource;
-  elements.lastUpdated.textContent = `${fetchedAt || '刚刚'} · ${liveUrl}`;
-
-  if (cacheError) {
-    const banner = document.createElement('p');
-    banner.className = 'error-banner';
-    banner.textContent = `实时接口暂不可用，已回退到本地缓存。原始错误：${cacheError}`;
-    elements.dataSource.parentElement.appendChild(banner);
-  }
+  elements.dataSource.textContent = `${history.snapshots.length} 天`;
+  elements.lastUpdated.textContent = history.generatedAt ? `最后更新：${history.generatedAt}` : '等待首个历史快照';
 }
 
-function clearErrorBanner() {
-  document.querySelectorAll('.error-banner').forEach((node) => node.remove());
+function populatePageSelect(history) {
+  const options = [{ path: 'all', label: '全站' }, ...history.pages.filter((page) => page.path !== 'all')];
+  elements.pageSelect.innerHTML = options
+    .map(
+      (page) => `
+        <option value="${page.path}">${page.label}</option>
+      `
+    )
+    .join('');
+
+  if (!options.some((option) => option.path === appState.selectedPage)) {
+    appState.selectedPage = 'all';
+  }
+
+  elements.pageSelect.value = appState.selectedPage;
+}
+
+function renderDashboard() {
+  const { history, selectedRange, selectedPage } = appState;
+  const rows = buildSeries(history, selectedRange, selectedPage);
+  const pageLabel = getPageLabel(history, selectedPage);
+  const rangeLabel = selectedRange === 'all' ? '全部历史' : `最近 ${selectedRange} 天`;
+
+  renderChart(rows, `${pageLabel} · ${rangeLabel}`, '静态历史文件');
+  renderTable(rows);
+  updateSummary(rows, history, selectedRange, selectedPage);
+}
+
+async function loadHistory() {
+  const payload = await fetchJson(HISTORY_URL);
+  appState.history = normalizeHistory(payload);
+  populatePageSelect(appState.history);
+  renderDashboard();
 }
 
 async function refreshDashboard() {
-  clearErrorBanner();
-  const targetUrl = normalizeTargetUrl(elements.targetUrl.value);
   elements.refreshButton.disabled = true;
   elements.refreshButton.textContent = '加载中...';
-  elements.statsTableBody.innerHTML = '<tr><td colspan="3" class="empty">正在请求 Vercount 接口...</td></tr>';
 
   try {
-    const stats = await loadStats(targetUrl);
-    renderChart(stats.rows);
-    renderTable(stats.rows);
-    updateSummary(stats.rows, stats.dataSource, stats.fetchedAt, stats.liveUrl, stats.cacheError);
+    await loadHistory();
   } catch (error) {
     elements.statsTableBody.innerHTML = `<tr><td colspan="3" class="empty">${error instanceof Error ? error.message : String(error)}</td></tr>`;
     elements.totalPv.textContent = '--';
@@ -266,19 +315,23 @@ async function refreshDashboard() {
     elements.peakDay.textContent = '--';
     elements.peakValue.textContent = '加载失败';
     elements.dataSource.textContent = '错误';
-    elements.lastUpdated.textContent = '请检查接口或缓存是否可访问';
+    elements.lastUpdated.textContent = '请检查静态历史文件是否可访问';
   } finally {
     elements.refreshButton.disabled = false;
-    elements.refreshButton.textContent = '刷新图表';
+    elements.refreshButton.textContent = '重新载入';
   }
 }
 
-elements.targetUrl.value = DEFAULT_TARGET;
-elements.refreshButton.addEventListener('click', refreshDashboard);
-elements.targetUrl.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') {
-    refreshDashboard();
-  }
+elements.rangeSelect.addEventListener('change', (event) => {
+  appState.selectedRange = event.target.value;
+  renderDashboard();
 });
+
+elements.pageSelect.addEventListener('change', (event) => {
+  appState.selectedPage = event.target.value;
+  renderDashboard();
+});
+
+elements.refreshButton.addEventListener('click', refreshDashboard);
 
 window.addEventListener('DOMContentLoaded', refreshDashboard);
