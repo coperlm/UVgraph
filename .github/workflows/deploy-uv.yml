@@ -9,8 +9,8 @@ on:
       - 'scripts/**'
       - 'index.html'
       - '.github/workflows/deploy-uv.yml'
-  schedule:
-    - cron: '0 2 * * *'
+  # schedule:
+  #   - cron: '0 2 * * *'
   workflow_dispatch:
 
 permissions:

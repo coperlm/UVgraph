@@ -2,6 +2,8 @@
 
 这是一个为 https://coperlm.github.io/ 做的 UV/PV 静态历史仪表盘。
 
+注意：目前有亿点bug
+
 ## 在线入口
 
 - 主入口：`/UV/`
