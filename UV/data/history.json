@@ -1,0 +1,26 @@
+{
+  "siteUrl": "https://coperlm.github.io/",
+  "generatedAt": "2026-06-23T08:04:41.519Z",
+  "pages": [
+    {
+      "path": "/",
+      "label": "首页"
+    }
+  ],
+  "snapshots": [
+    {
+      "date": "2026-06-23",
+      "site": {
+        "pv": 8,
+        "uv": 7
+      },
+      "pages": [
+        {
+          "path": "/",
+          "pv": 3,
+          "uv": 2
+        }
+      ]
+    }
+  ]
+}
